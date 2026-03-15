@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SPHERE Mission Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg-void: #020810;
+            --bg-panel: #060f1e;
+            --bg-glass: rgba(6, 25, 50, 0.82);
+            --cyan: #00e5ff;
+            --cyan-dim: #0099bb;
+            --cyan-glow: rgba(0, 229, 255, 0.18);
+            --blue: #2979ff;
+            --ok: #00e676;
+            --warn: #ffab00;
+            --danger: #ff1744;
+            --ai-plastic: #ff6d00;
+            --ai-fish: #00b0ff;
+            --ai-metal: #aa00ff;
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body {
+            margin: 0;
+            background-color: var(--bg-void);
+            color: var(--cyan);
+            font-family: 'Rajdhani', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr 320px 280px;
+            grid-template-rows: 48px 1fr 220px;
+            gap: 6px;
+            height: 100vh;
+            padding: 6px;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid rgba(0, 229, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .font-mono { font-family: 'Share Tech Mono', monospace; }
+
+        .status-bar {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background: var(--bg-panel);
+            border-bottom: 2px solid var(--cyan-dim);
+        }
+        .logo { font-size: 24px; font-weight: 900; letter-spacing: 2px; text-shadow: 0 0 10px var(--cyan); display: flex; align-items: center; }
+        .pulse-dot { display: inline-block; width: 8px; height: 8px; background: var(--cyan); border-radius: 50%; margin-left: 8px; animation: pulse 1s infinite; }
+        .status-indicators { display: flex; gap: 16px; }
+        .indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--cyan-dim); opacity: 0.5; transition: all 0.3s; }
+        .indicator.active { color: var(--ok); text-shadow: 0 0 5px var(--ok); opacity: 1; }
+        .indicator-dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+
+        #panel-controls { padding: 10px; gap: 10px; }
+        .joystick-container { display: flex; justify-content: center; height: 140px; position: relative; background: radial-gradient(circle, rgba(0,229,255,0.05) 0%, transparent 70%); border-radius: 8px; border: 1px solid rgba(0,229,255,0.1); }
+        .sliders-container { display: flex; justify-content: space-around; height: 160px; align-items: flex-end; margin-top: auto; }
+        .slider-group { display: flex; flex-direction: column; align-items: center; height: 100%; width: 30%; position: relative; }
+        .slider-track { width: 8px; height: 100%; background: #0b1629; position: relative; border-radius: 4px; border: 1px solid #1c3a5e; overflow: hidden; }
+        .slider-fill { position: absolute; bottom: 0; left: 0; width: 100%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); transition: height 0.1s; }
+        .slider-handle { position: absolute; width: 20px; height: 10px; background: #fff; left: 50%; transform: translateX(-50%); bottom: 0; border-radius: 2px; pointer-events: none; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+        .action-btn {
+            background: rgba(0, 229, 255, 0.05); border: 1px solid var(--cyan-dim); color: var(--cyan);
+            padding: 8px; font-family: 'Orbitron'; font-size: 11px; cursor: pointer; transition: all 0.1s;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .action-btn:active { transform: scale(0.96); background: var(--cyan); color: #000; box-shadow: 0 0 15px var(--cyan); }
+        .action-btn.red { border-color: var(--danger); color: var(--danger); }
+        .action-btn.red:active { background: var(--danger); color: #fff; box-shadow: 0 0 15px var(--danger); }
+
+        #panel-camera { background: #000; display: flex; flex-direction: row; }
+        .ai-sidebar { width: 48px; background: rgba(0,0,0,0.8); border-right: 1px solid rgba(0,229,255,0.2); display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 15px; z-index: 5; }
+        .ai-count-item { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: bold; }
+        .ai-count-val { font-family: 'Share Tech Mono'; font-size: 14px; color: #fff; }
+        #camera-wrapper { position: relative; flex: 1; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000; }
+        #camera-canvas { width: 320px; height: 240px; }
+        .overlay-layer { position: absolute; top: 50%; left: 50%; width: 320px; height: 240px; transform: translate(-50%, -50%); pointer-events: none; }
+        .corner-info { position: absolute; padding: 12px; font-family: 'Rajdhani'; font-weight: 600; font-size: 14px; text-shadow: 0 0 4px #000; background: rgba(0,0,0,0.3); border-radius: 4px; }
+        .top-left { top: 10px; left: 10px; border-left: 2px solid var(--cyan); }
+        .top-right { top: 10px; right: 10px; text-align: right; border-right: 2px solid var(--warn); color: var(--warn); }
+        .bottom-left { bottom: 10px; left: 10px; border-left: 2px solid var(--ok); color: #fff; }
+        .bottom-right { bottom: 10px; right: 10px; text-align: right; border-right: 2px solid var(--cyan); color: #fff; }
+
+        #panel-sonar { align-items: center; padding: 10px; }
+        .radar-container { width: 280px; height: 280px; position: relative; margin: auto; }
+        #sonar-canvas { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle, transparent 20%, rgba(0, 229, 255, 0.05) 21%, transparent 22%); border: 1px solid rgba(0, 229, 255, 0.2); }
+        .sonar-readout { width: 100%; display: flex; justify-content: space-between; font-size: 14px; margin-top: 10px; padding: 0 20px; }
+
+        #panel-sensors { padding: 10px; gap: 8px; }
+        .gauge-row { display: flex; justify-content: space-between; align-items: center; height: 60px; padding: 0 10px; background: rgba(0, 229, 255, 0.02); border-radius: 4px; }
+        .gauge-svg { width: 50px; height: 50px; }
+        .gauge-track { fill: none; stroke: rgba(255, 255, 255, 0.1); stroke-width: 8; stroke-linecap: round; }
+        .gauge-fill { fill: none; stroke: var(--cyan); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease-out; }
+        .battery-container { margin-top: auto; padding: 10px; }
+        .battery-bar { height: 32px; border: 2px solid var(--cyan-dim); padding: 3px; position: relative; background: rgba(0,0,0,0.5); }
+        .battery-fill { height: 100%; background: var(--ok); width: 87%; transition: width 0.5s, background-color 0.5s; box-shadow: 0 0 10px var(--ok); }
+        .battery-text { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-family: 'Orbitron'; font-size: 14px; color: #fff; text-shadow: 0 0 5px #000; z-index: 2; }
+
+        .bottom-panel { padding: 8px; }
+        .panel-title { font-size: 12px; color: var(--cyan-dim); margin-bottom: 6px; border-bottom: 1px solid rgba(0, 229, 255, 0.2); text-transform: uppercase; letter-spacing: 1px; display: flex; justify-content: space-between; }
+        
+        #log-container { flex: 1; overflow-y: auto; font-size: 11px; color: #aaa; scrollbar-width: thin; font-family: 'Share Tech Mono', monospace; line-height: 1.4; }
+        .log-entry { margin-bottom: 2px; }
+        .log-time { color: var(--cyan-dim); margin-right: 6px; opacity: 0.7; }
+        .log-warn { color: var(--warn); }
+        .log-crit { color: var(--danger); background: rgba(255, 23, 68, 0.1); }
+
+        #alert-feed { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; flex: 1; }
+        .alert-item { padding: 6px; border-left: 3px solid var(--cyan); background: rgba(0, 229, 255, 0.05); font-size: 11px; animation: slideIn 0.3s ease-out; }
+        .alert-crit { border-left-color: var(--danger); background: rgba(255, 23, 68, 0.1); animation: flashRed 1s infinite; }
+        .alert-high { border-left-color: var(--warn); color: var(--warn); }
+
+        @keyframes pulse { 0% { opacity: 0.5; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.5; transform: scale(0.8); } }
+        @keyframes flashRed { 0%, 100% { background-color: rgba(255, 23, 68, 0.1); } 50% { background-color: rgba(255, 23, 68, 0.3); } }
+        @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        .simulation-badge {
+            background: var(--warn); color: #000; padding: 2px 8px; border-radius: 4px; font-weight: 900; font-size: 12px; letter-spacing: 1px; display: none;
+            box-shadow: 0 0 10px var(--warn);
+        }
+        
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+
+<div class="main-grid">
+    <header class="status-bar font-orbitron">
+        <div style="display: flex; align-items: center;">
+            <div class="logo">SPHERE <span class="pulse-dot"></span></div>
+            <div class="simulation-badge" id="sim-badge" style="margin-left: 15px;">SIMULATION MODE</div>
+        </div>
+        
+        <div class="status-indicators">
+            <div class="indicator" id="conn-arduino"><div class="indicator-dot"></div> ARDUINO</div>
+            <div class="indicator" id="conn-camera"><div class="indicator-dot"></div> CAMERA</div>
+            <div class="indicator" id="conn-gps"><div class="indicator-dot"></div> GPS</div>
+            <div class="indicator" id="conn-esp"><div class="indicator-dot"></div> ESP8266</div>
+        </div>
+
+        <div class="center-metrics" style="display: flex; gap: 40px; font-size: 18px;">
+            <div>TIMER: <span id="mission-timer" class="font-mono" style="color: #fff;">00:00:00</span></div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div>DEPTH: <span id="depth-val" style="color: var(--cyan); font-weight: bold;">0.0</span> <span style="font-size: 12px; color: var(--cyan-dim);">m</span></div>
+                <button onclick="socket.emit('calibrate_depth', true)" style="background: rgba(0,229,255,0.1); border: 1px solid var(--cyan-dim); color: var(--cyan); font-size: 10px; cursor: pointer; padding: 2px 5px; border-radius: 2px;">CALIB</button>
+            </div>
+        </div>
+
+        <div class="battery-status" style="font-size: 18px; font-weight: bold; color: var(--ok);">
+            <span id="bat-val-header">--%</span> <span style="font-size: 12px;">PWR</span>
+        </div>
+    </header>
+
+    <section class="panel" id="panel-controls">
+        <div class="panel-title">
+            <span>MANUAL OVERRIDE</span>
+            <span id="gp-status" style="font-size: 9px; opacity: 0.5;">GAMEPAD: DISCONNECTED</span>
+        </div>
+        <div class="joystick-container">
+            <canvas id="joystick-canvas" width="260" height="130"></canvas>
+            <div style="position: absolute; bottom: 5px; left: 60px; font-size: 9px; color: var(--cyan-dim);">NAV</div>
+            <div style="position: absolute; bottom: 5px; right: 60px; font-size: 9px; color: var(--cyan-dim);">DEPTH/PITCH</div>
+        </div>
+        
+        <div class="sliders-container">
+            <div class="slider-group">
+                <div class="slider-track"><div class="slider-fill" id="fill-t1" style="height: 0%"></div><div class="slider-handle" id="handle-t1" style="bottom: 0%"></div></div>
+                <div class="font-orbitron" style="font-size: 12px; margin-top: 6px;">T1</div>
+                <div class="font-mono" id="val-t1" style="font-size: 10px; color: #aaa;">0%</div>
+            </div>
+            <div class="slider-group">
+                <div class="slider-track"><div class="slider-fill" id="fill-t2" style="height: 0%"></div><div class="slider-handle" id="handle-t2" style="bottom: 0%"></div></div>
+                <div class="font-orbitron" style="font-size: 12px; margin-top: 6px;">T2</div>
+                <div class="font-mono" id="val-t2" style="font-size: 10px; color: #aaa;">0%</div>
+            </div>
+            <div class="slider-group">
+                <div class="slider-track"><div class="slider-fill" id="fill-t3" style="height: 0%"></div><div class="slider-handle" id="handle-t3" style="bottom: 0%"></div></div>
+                <div class="font-orbitron" style="font-size: 12px; margin-top: 6px;">T3</div>
+                <div class="font-mono" id="val-t3" style="font-size: 10px; color: #aaa;">0%</div>
+            </div>
+        </div>
+
+        <div class="btn-grid">
+            <button class="action-btn" onclick="sendCommand('depth', 'hover')">HOVER</button>
+            <button class="action-btn" onclick="sendCommand('depth', 'dive1')">DIVE 1M</button>
+            <button class="action-btn red" onclick="sendCommand('stop', true)">STOP (SPACE)</button>
+            <button class="action-btn" onclick="sendCommand('lights', 'toggle')">LIGHTS (L)</button>
+        </div>
+    </section>
+
+    <section class="panel" id="panel-camera">
+        <div class="ai-sidebar">
+            <div class="ai-count-item">🧪<div class="ai-count-val" id="cnt-plastic">0</div></div>
+            <div class="ai-count-item">🐟<div class="ai-count-val" id="cnt-bio">0</div></div>
+            <div class="ai-count-item">🔩<div class="ai-count-val" id="cnt-metal">0</div></div>
+        </div>
+        <div id="camera-wrapper">
+            <canvas id="camera-canvas" width="320" height="240"></canvas>
+            <canvas id="ai-overlay-canvas" width="320" height="240" class="overlay-layer"></canvas>
+            <div class="overlay-layer" id="ai-info-overlay">
+                <div class="corner-info top-left">
+                    <div style="font-size: 10px; color: var(--cyan-dim);">GPS COORDINATES</div>
+                    <span id="cam-gps">-- N, -- E</span>
+                </div>
+                <div class="corner-info top-right">
+                    <div style="font-size: 10px; color: var(--warn);">DEPTH WARNING > 10m</div>
+                    <span id="cam-depth" style="font-size: 24px;">0.0</span>m
+                </div>
+                <div class="corner-info bottom-left">
+                    TEMP: <span id="cam-temp">--</span>°C <br>
+                    PRES: <span id="cam-pres">--</span>hPa
+                </div>
+                <div class="corner-info bottom-right">
+                    TDS: <span id="cam-tds">--</span>ppm <br>
+                    TURB: <span id="cam-turb">--</span>NTU
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel" id="panel-sonar">
+        <div class="panel-title">SONAR ARRAY (DUAL-BEAM)</div>
+        <div class="radar-container">
+            <canvas id="sonar-canvas" width="280" height="280"></canvas>
+        </div>
+        <div class="sonar-readout">
+            <div>ANGLE: <span id="sonar-angle" class="font-orbitron" style="color: var(--cyan);">090</span>°</div>
+            <div>US1: <span id="sonar-dist" class="font-orbitron" style="color: var(--ok);">--</span>cm</div>
+        </div>
+    </section>
+
+    <section class="panel" id="panel-sensors">
+        <div class="panel-title">TELEMETRY</div>
+        <div id="gauges-container" style="display: flex; flex-direction: column; gap: 4px;"></div>
+        <div class="battery-container">
+            <div class="battery-bar">
+                <div class="battery-fill" id="main-batt-bar"></div>
+                <div class="battery-text" id="bat-val-footer">--%</div>
+            </div>
+            <div style="font-size: 10px; color: var(--cyan-dim); margin-top: 4px; display: flex; justify-content: space-between;">
+                <span>MAIN BUS VOLTAGE</span>
+                <span>16.4V</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel bottom-panel">
+        <div class="panel-title">IMU / ORIENTATION</div>
+        <div style="flex: 1; position: relative;">
+            <canvas id="imu-canvas" width="260" height="180" style="width: 100%; height: 100%;"></canvas>
+            <div class="font-mono" style="position: absolute; bottom: 4px; left: 4px; font-size: 10px; background: rgba(0,0,0,0.5); padding: 2px;">
+                R:<span id="imu-r">0</span> P:<span id="imu-p">0</span> Y:<span id="imu-y">0</span>
+            </div>
+            <div class="font-mono" style="position: absolute; bottom: 4px; right: 4px; font-size: 10px; background: rgba(0,0,0,0.5); padding: 2px;">
+                COMPASS: <span id="comp-val">0</span>°
+            </div>
+        </div>
+    </section>
+
+    <section class="panel bottom-panel">
+        <div class="panel-title">GPS TRAIL</div>
+        <div style="flex: 1; position: relative; background: #000;">
+            <canvas id="gps-canvas" width="300" height="180" style="width: 100%; height: 100%;"></canvas>
+            <div id="gps-status-badge" style="position: absolute; top: 4px; right: 4px; color: var(--warn); font-size: 10px; font-weight: bold;">NO FIX</div>
+        </div>
+    </section>
+
+    <section class="panel bottom-panel">
+        <div class="panel-title">ALERT FEED</div>
+        <div id="alert-feed"></div>
+    </section>
+
+    <section class="panel bottom-panel">
+        <div class="panel-title">
+            <span>SYSTEM LOG</span>
+            <span id="noise-badge" style="font-size: 9px; color: var(--ok);">AUDIO: CLEAN</span>
+        </div>
+        <div id="log-container" class="font-mono"></div>
+    </section>
+</div>
+
+<script>
+    const $ = id => document.getElementById(id);
+    const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+    
+    const state = {
+        connected: false,
+        simulation: false,
+        simGraceTimeout: null,
+        startTime: Date.now(),
+        lastCommandTime: 0,
+        aiCounts: { PLASTIC: 0, BIO: 0, METAL: 0 },
+        sensors: { sonar: { angle: 90, us1: 0, us2: 0 }, imu: { roll: 0, pitch: 0, yaw: 0 }, gps: { lat: 0, lon: 0 } },
+        input: { joystick: { left: {x:0, y:0}, right: {x:0, y:0} } }
+    };
+
+    const socket = io();
+    
+    socket.on('connect', () => {
+        clearTimeout(state.simGraceTimeout);
+        state.connected = true;
+        state.simulation = false;
+        $('sim-badge').style.display = 'none';
+        log("Link Established. SPHERE Mission Control ACTIVE.", "info");
+    });
+
+    socket.on('disconnect', () => {
+        state.connected = false;
+        state.simulation = true;
+        $('sim-badge').style.display = 'inline-block';
+        log("Connection Lost. Reverting to Autonomous Simulation.", "crit");
+        updateIndicators({ arduino: false, camera: false, gps: false, esp8266: false });
+    });
+
+    socket.on('update', (data) => {
+        if (!state.simulation) {
+            updateDashboard(data);
+            updateIndicators(data.connected);
+        }
+    });
+
+    socket.on('camera_frame', (data) => {
+        if (!state.simulation) {
+            const img = new Image();
+            img.onload = () => camCtx.drawImage(img, 0, 0, 320, 240); // Native 320x240 to avoid blur
+            img.src = 'data:image/jpeg;base64,' + data.image;
+        }
+    });
+
+    // Start Simulation Grace Period (3 seconds)
+    state.simGraceTimeout = setTimeout(() => {
+        if (!state.connected) {
+            state.simulation = true;
+            $('sim-badge').style.display = 'inline-block';
+            log("No server response (3s). Simulation protocol ENGAGED.", "warn");
+        }
+    }, 3000);
+
+    function updateIndicators(conn) {
+        const mapping = { 'conn-arduino': conn.arduino, 'conn-camera': conn.camera, 'conn-gps': conn.gps, 'conn-esp': conn.esp8266 };
+        for (const [id, active] of Object.entries(mapping)) {
+            const el = $(id);
+            if (active) el.classList.add('active');
+            else el.classList.remove('active');
+        }
+    }
+
+    // --- MAIN UPDATE LOOP ---
+    setInterval(() => {
+        const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+        const hh = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+        const mm = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+        const ss = String(elapsed % 60).padStart(2, '0');
+        $('mission-timer').innerText = `${hh}:${mm}:${ss}`;
+
+        if (state.simulation) {
+            const t = Date.now() / 1000;
+            const depth = Math.max(0, ((1013.25 + (Math.sin(t*0.2)+1)*50) - 1013.25) * 0.1);
+            const simData = {
+                temp: 24 + Math.sin(t * 0.1) * 2,
+                pressure: 1013.25 + (Math.sin(t * 0.2) + 1) * 50,
+                depth: depth,
+                tds: 320 + Math.random() * 20,
+                turbidity: 10 + Math.random() * 5,
+                battery_pct: Math.max(15, 95 - (elapsed * 0.05)),
+                imu: { roll: Math.sin(t * 0.5) * 15, pitch: Math.cos(t * 0.3) * 10, yaw: (t * 10) % 360 },
+                sonar: { angle: Math.abs(Math.sin(t) * 180), us1: 80 + Math.sin(t*5)*60, us2: 70 + Math.cos(t*5)*60 },
+                gps: { lat: 11.2416 + Math.sin(t*0.05)*0.0005, lon: 79.5053 + Math.cos(t*0.05)*0.0005, fix: true },
+                noise_class: "CLEAN",
+                compass: { 
+                    mx: Math.cos(t*0.2) * 25, 
+                    my: Math.sin(t*0.2) * 25 
+                },
+                detections: Math.random() < 0.01 ? [{ class: "PLASTIC", conf: 0.9, box: [100, 100, 200, 180] }] : [],
+                // FIX 10: Add connected field to simulation data
+                connected: { arduino: false, camera: false, gps: true, esp8266: false }
+            };
+            updateDashboard(simData);
+            updateIndicators(simData.connected);
+        }
+    }, 150);
+
+    function updateDashboard(data) {
+        // Depth (Direct from backend)
+        const depth = (data.depth || 0).toFixed(1);
+        $('depth-val').innerText = depth;
+        $('cam-depth').innerText = depth;
+        // FIX 9: Correct parseFloat comparison
+        if (parseFloat(depth) > 10) addAlert("CRITICAL DEPTH EXCEEDED", "crit");
+
+        // Battery
+        const bat = Math.round(data.battery_pct);
+        $('bat-val-header').innerText = bat + '%';
+        $('bat-val-footer').innerText = bat + '%';
+        $('main-batt-bar').style.width = bat + '%';
+        if (bat < 20) {
+            $('main-batt-bar').style.backgroundColor = 'var(--danger)';
+            addAlert("LOW BATTERY - RETURN TO SURFACE", "high");
+        } else {
+            $('main-batt-bar').style.backgroundColor = 'var(--ok)';
+        }
+
+        // Camera Info
+        $('cam-temp').innerText = data.temp.toFixed(1);
+        $('cam-pres').innerText = Math.round(data.pressure);
+        $('cam-tds').innerText = Math.round(data.tds);
+        $('cam-turb').innerText = Math.round(data.turbidity);
+        $('cam-gps').innerText = `${data.gps.lat.toFixed(4)} N, ${data.gps.lon.toFixed(4)} E`;
+
+        // IMU & Compass
+        $('imu-r').innerText = data.imu.roll.toFixed(0);
+        $('imu-p').innerText = data.imu.pitch.toFixed(0);
+        $('imu-y').innerText = data.imu.yaw.toFixed(0);
+        
+        // Correct Compass Calculation from raw magnetometer values
+        const heading = Math.round(Math.atan2(data.compass.my || 0, data.compass.mx || 1) * 180 / Math.PI + 360) % 360;
+        $('comp-val').innerText = heading + '°';
+
+        // Sonar
+        $('sonar-angle').innerText = String(Math.round(data.sonar.angle)).padStart(3, '0');
+        $('sonar-dist').innerText = Math.round(data.sonar.us1);
+        if (data.sonar.us1 < 30) addAlert("OBSTACLE CLOSE", "high");
+
+        // Noise
+        $('noise-badge').innerText = `AUDIO: ${data.noise_class}`;
+        $('noise-badge').style.color = data.noise_class === 'CLEAN' ? 'var(--ok)' : 'var(--warn)';
+
+        // Gauges
+        updateGauge('tds', data.tds);
+        updateGauge('turb', data.turbidity);
+        updateGauge('temp', data.temp);
+        updateGauge('pres', data.pressure);
+        
+        // Threshold Alerts
+        if (data.tds > 600) addAlert("SALINE THRESHOLD ALERT", "high");
+        if (data.turbidity > 80) addAlert("REDUCED VISIBILITY", "warn");
+        if (!data.gps.fix) addAlert("GPS SIGNAL LOST", "warn");
+
+        // Canvases
+        renderSonar(data.sonar);
+        renderIMU(data.imu);
+        renderGPS(data.gps);
+        renderAIDetections(data.detections);
+        if (state.simulation) renderCameraNoise();
+    }
+
+    // --- GAUGES ---
+    const gauges = {};
+    const gaugeConfig = [
+        { id: 'tds', label: 'TDS', unit: 'ppm', min: 0, max: 1000, safe: 500 },
+        { id: 'turb', label: 'TURB', unit: 'NTU', min: 0, max: 100, safe: 30 },
+        { id: 'temp', label: 'TEMP', unit: '°C', min: 0, max: 50, safe: 35 },
+        { id: 'pres', label: 'PRES', unit: 'hPa', min: 900, max: 1100, safe: 1050 }
+    ];
+
+    function initGauges() {
+        const container = $('gauges-container');
+        gaugeConfig.forEach(cfg => {
+            const el = document.createElement('div');
+            el.className = 'gauge-row';
+            el.innerHTML = `<div class="font-orbitron" style="width: 70px; text-align: right;"><div style="font-size: 16px; color: var(--cyan); font-weight: bold;">${cfg.label}</div><div style="font-size: 10px; color: var(--cyan-dim);">${cfg.unit}</div></div><div class="font-mono" id="val-${cfg.id}" style="font-size: 14px; width: 40px; text-align: right;">0</div><svg class="gauge-svg" viewBox="0 0 100 100"><path class="gauge-track" d="M 20 80 A 40 40 0 1 1 80 80" /><path id="arc-${cfg.id}" class="gauge-fill" d="M 20 80 A 40 40 0 1 1 80 80" stroke-dasharray="188.5" stroke-dashoffset="188.5" /></svg>`;
+            container.appendChild(el);
+            gauges[cfg.id] = cfg;
+        });
+    }
+
+    function updateGauge(id, val) {
+        const cfg = gauges[id];
+        if (!cfg) return;
+        $(`val-${id}`).innerText = Math.round(val);
+        const pct = clamp((val - cfg.min) / (cfg.max - cfg.min), 0, 1);
+        const arc = $(`arc-${id}`);
+        arc.style.strokeDashoffset = 188.5 * (1 - pct);
+        arc.style.stroke = val > cfg.safe ? 'var(--warn)' : 'var(--cyan)';
+    }
+
+    // --- JOYSTICK & INPUT ---
+    const joyCanvas = $('joystick-canvas'), joyCtx = joyCanvas.getContext('2d');
+    let dragging = null, gamepadIndex = null;
+    const keys = {};
+
+    function renderJoysticks() {
+        pollGamepad(); // Gamepad polling inside rAF loop
+        pollKeyboard(); // Keyboard polling
+        updateSliders();
+        joyCtx.clearRect(0, 0, joyCanvas.width, joyCanvas.height);
+        drawStick(65, 65, state.input.joystick.left);
+        drawStick(195, 65, state.input.joystick.right);
+        requestAnimationFrame(renderJoysticks);
+    }
+
+    function drawStick(cx, cy, input) {
+        joyCtx.beginPath(); joyCtx.arc(cx, cy, 40, 0, Math.PI*2); joyCtx.strokeStyle = 'rgba(0, 229, 255, 0.2)'; joyCtx.lineWidth = 2; joyCtx.stroke();
+        const x = cx + input.x * 40, y = cy + input.y * 40;
+        joyCtx.beginPath(); joyCtx.arc(x, y, 20, 0, Math.PI*2); joyCtx.fillStyle = 'rgba(0, 229, 255, 0.5)'; joyCtx.fill(); joyCtx.strokeStyle = '#fff'; joyCtx.stroke();
+    }
+
+    function updateSliders() {
+        const t1 = Math.abs(state.input.joystick.left.y) * 100;
+        const t2 = Math.abs(state.input.joystick.left.x) * 100;
+        const t3 = Math.abs(state.input.joystick.right.y) * 100;
+        $('fill-t1').style.height = t1 + '%'; $('val-t1').innerText = Math.round(t1) + '%';
+        $('fill-t2').style.height = t2 + '%'; $('val-t2').innerText = Math.round(t2) + '%';
+        $('fill-t3').style.height = t3 + '%'; $('val-t3').innerText = Math.round(t3) + '%';
+    }
+
+    function pollGamepad() {
+        const pads = navigator.getGamepads();
+        if (pads[gamepadIndex]) {
+            const pad = pads[gamepadIndex], dz = 0.15;
+            const applyDZ = v => Math.abs(v) < dz ? 0 : v;
+            // Fixed typo gp.Scalx -> gp.lx
+            const gp = { lx: applyDZ(pad.axes[0]), ly: applyDZ(pad.axes[1]), rx: applyDZ(pad.axes[2]), ry: applyDZ(pad.axes[3]) };
+            if (Math.abs(gp.lx) + Math.abs(gp.ly) + Math.abs(gp.rx) + Math.abs(gp.ry) > 0.05) {
+                state.input.joystick.left = { x: gp.lx, y: gp.ly };
+                state.input.joystick.right = { x: gp.rx, y: gp.ry };
+                sendCommand('motor', state.input);
+            }
+        }
+    }
+
+    function pollKeyboard() {
+        let surge = 0, yaw = 0, heave = 0, sway = 0;
+        if (keys['w']) surge = -1;
+        if (keys['s']) surge = 1;
+        if (keys['a']) yaw = -1;
+        if (keys['d']) yaw = 1;
+        if (keys['q']) heave = 1; // Surface
+        if (keys['e']) heave = -1; // Dive
+        
+        if (surge !== 0 || yaw !== 0 || heave !== 0) {
+            state.input.joystick.left = { x: yaw, y: surge };
+            state.input.joystick.right = { x: 0, y: heave };
+            sendCommand('motor', state.input);
+        }
+    }
+
+    joyCanvas.addEventListener('mousedown', e => {
+        const rect = joyCanvas.getBoundingClientRect(), x = e.clientX - rect.left;
+        dragging = x < rect.width / 2 ? 'left' : 'right';
+        updateMouseJoy(e);
+    });
+    window.addEventListener('mousemove', e => { if (dragging) updateMouseJoy(e); });
+    window.addEventListener('mouseup', () => { if (dragging) { state.input.joystick[dragging] = {x:0,y:0}; sendCommand('motor', state.input); dragging = null; } });
+
+    function updateMouseJoy(e) {
+        const rect = joyCanvas.getBoundingClientRect(), cx = dragging === 'left' ? 65 : 195, cy = 65;
+        let dx = (e.clientX - rect.left - cx) / 40, dy = (e.clientY - rect.top - cy) / 40;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > 1) { dx /= len; dy /= len; }
+        state.input.joystick[dragging] = { x: dx, y: dy };
+        sendCommand('motor', state.input);
+    }
+
+    window.addEventListener("gamepadconnected", e => { gamepadIndex = e.gamepad.index; $('gp-status').innerText = 'GAMEPAD: CONNECTED'; $('gp-status').style.color = 'var(--ok)'; $('gp-status').style.opacity = '1'; });
+    window.addEventListener("gamepaddisconnected", () => { gamepadIndex = null; $('gp-status').innerText = 'GAMEPAD: DISCONNECTED'; $('gp-status').style.color = 'rgba(0,229,255,0.3)'; $('gp-status').style.opacity = '0.5'; });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.code === 'Space') { sendCommand('stop', true); e.preventDefault(); }
+        if (e.key.toLowerCase() === 'l') sendCommand('lights', 'toggle');
+    });
+    window.addEventListener('keyup', e => {
+        keys[e.key.toLowerCase()] = false;
+        // Reset joystick values when keys released
+        if (!keys['w'] && !keys['s'] && !keys['a'] && !keys['d']) {
+            state.input.joystick.left = { x: 0, y: 0 };
+        }
+        if (!keys['q'] && !keys['e']) {
+            state.input.joystick.right = { x: 0, y: 0 };
+        }
+        if (!keys['w'] && !keys['s'] && !keys['a'] && !keys['d'] && !keys['q'] && !keys['e']) {
+            sendCommand('motor', state.input);
+        }
+    });
+
+    // --- CANVASES ---
+    const sonarCtx = $('sonar-canvas').getContext('2d');
+    const blips = [];
+    function renderSonar(sonar) {
+        sonarCtx.fillStyle = 'rgba(6, 15, 30, 0.15)'; // Fade effect
+        sonarCtx.fillRect(0, 0, 280, 280);
+        const cx = 140, cy = 140;
+        // Rings
+        sonarCtx.strokeStyle = 'rgba(0, 229, 255, 0.1)'; sonarCtx.lineWidth = 1;
+        [40, 80, 120].forEach(r => { sonarCtx.beginPath(); sonarCtx.arc(cx, cy, r, 0, Math.PI*2); sonarCtx.stroke(); });
+        // Scan Line
+        const rad1 = (sonar.angle - 90) * Math.PI / 180;
+        sonarCtx.strokeStyle = 'rgba(0, 229, 255, 0.8)'; sonarCtx.beginPath(); sonarCtx.moveTo(cx, cy); sonarCtx.lineTo(cx + Math.cos(rad1) * 130, cy + Math.sin(rad1) * 130); sonarCtx.stroke();
+        
+        // Add blips for us1 and us2
+        if (sonar.us1 < 200) blips.push({ a: rad1, d: (sonar.us1/200)*130, t: Date.now() });
+        const rad2 = (sonar.angle + 30 - 90) * Math.PI / 180;
+        if (sonar.us2 < 200) blips.push({ a: rad2, d: (sonar.us2/200)*130, t: Date.now() });
+
+        const now = Date.now();
+        for (let i = blips.length - 1; i >= 0; i--) {
+            const b = blips[i];
+            // FIX 8: Age-based expiry (5 seconds) for full sweep persistence
+            if (now - b.t > 5000) { blips.splice(i, 1); continue; }
+            sonarCtx.fillStyle = `rgba(0, 229, 255, ${1 - (now - b.t) / 5000})`;
+            sonarCtx.beginPath(); sonarCtx.arc(cx + Math.cos(b.a) * b.d, cy + Math.sin(b.a) * b.d, 3, 0, Math.PI*2); sonarCtx.fill();
+        }
+    }
+
+    const imuCtx = $('imu-canvas').getContext('2d');
+    function renderIMU(imu) {
+        const ctx = imuCtx, w = 260, h = 180;
+        ctx.clearRect(0,0,w,h);
+        ctx.save();
+        ctx.beginPath(); ctx.arc(w/2, h/2, 70, 0, Math.PI*2); ctx.clip(); // Circular Mask
+        ctx.translate(w/2, h/2);
+        ctx.rotate(-imu.roll * Math.PI / 180);
+        ctx.translate(0, imu.pitch * 2);
+        ctx.fillStyle = '#0099bb'; ctx.fillRect(-w, -h, w*2, h);
+        ctx.fillStyle = '#020810'; ctx.fillRect(-w, 0, w*2, h);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-w, 0); ctx.lineTo(w, 0); ctx.stroke();
+        
+        // Crosshair drawn WITHIN clipping region
+        ctx.strokeStyle = 'var(--warn)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-20, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(20, 0); ctx.stroke();
+        
+        ctx.restore();
+    }
+
+    const gpsCtx = $('gps-canvas').getContext('2d'), gpsPath = [];
+    function renderGPS(gps) {
+        if (!gps.fix) { $('gps-status-badge').innerText = "NO FIX"; return; }
+        $('gps-status-badge').innerText = "FIX ACQUIRED";
+        $('gps-status-badge').style.color = "var(--ok)";
+        gpsPath.push({ x: gps.lon, y: gps.lat });
+        if (gpsPath.length > 500) gpsPath.shift();
+        const ctx = gpsCtx, w = 300, h = 180;
+        ctx.fillStyle = '#000'; ctx.fillRect(0,0,w,h);
+        if (gpsPath.length < 2) return;
+        
+        // Bounding-box Auto-scale
+        const lons = gpsPath.map(p => p.x), lats = gpsPath.map(p => p.y);
+        const minLon = Math.min(...lons), maxLon = Math.max(...lons), minLat = Math.min(...lats), maxLat = Math.max(...lats);
+        const rangeX = maxLon - minLon || 0.0001, rangeY = maxLat - minLat || 0.0001;
+        const scaleX = (w - 20) / rangeX, scaleY = (h - 20) / rangeY;
+        
+        ctx.strokeStyle = 'var(--ok)'; ctx.lineWidth = 2; ctx.beginPath();
+        gpsPath.forEach((p, i) => {
+            const x = 10 + (p.x - minLon) * scaleX, y = h - 10 - (p.y - minLat) * scaleY;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    const camCtx = $('camera-canvas').getContext('2d');
+    const aiCtx = $('ai-overlay-canvas').getContext('2d');
+    function renderAIDetections(detections) {
+        // Clear previous detections from the overlay canvas
+        aiCtx.clearRect(0, 0, 320, 240);
+        
+        if (detections.length === 0) {
+            // Reset all counts if no detections
+            ["PLASTIC", "BIO", "METAL"].forEach(cls => {
+                $(`cnt-${cls.toLowerCase()}`).innerText = 0;
+            });
+            return;
+        }
+
+        detections.forEach(d => {
+            aiCtx.strokeStyle = d.class === 'PLASTIC' ? 'var(--ai-plastic)' : d.class === 'BIO' ? 'var(--ai-fish)' : 'var(--ai-metal)';
+            aiCtx.lineWidth = 3;
+            const [x1, y1, x2, y2] = d.box;
+            aiCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            aiCtx.fillStyle = aiCtx.strokeStyle;
+            // FIX 15: Add fallback for Orbitron
+            aiCtx.font = "bold 12px Orbitron, monospace";
+            aiCtx.fillText(`${d.class} ${Math.round(d.conf*100)}%`, x1, y1 - 5);
+            
+            // Show only per-frame count in sidebar
+            const badgeId = `cnt-${d.class.toLowerCase()}`;
+            if ($(badgeId)) $(badgeId).innerText = detections.filter(det => det.class === d.class).length;
+        });
+        
+        // Reset counts for classes not present in this frame
+        ["PLASTIC", "BIO", "METAL"].forEach(cls => {
+            if (!detections.some(d => d.class === cls)) {
+                $(`cnt-${cls.toLowerCase()}`).innerText = 0;
+            }
+        });
+    }
+
+    function renderCameraNoise() {
+        const w = 320, h = 240, idata = camCtx.createImageData(w, h), buf = new Uint32Array(idata.data.buffer);
+        for (let i = 0; i < buf.length; i++) buf[i] = Math.random() < 0.1 ? 0xFF00FF00 : 0xFF000000;
+        camCtx.putImageData(idata, 0, 0);
+        camCtx.fillStyle = "rgba(0, 255, 0, 0.2)";
+        for (let y = 0; y < h; y += 4) camCtx.fillRect(0, y, w, 1); // Scanlines
+    }
+
+    function log(msg, level='info') {
+        const div = document.createElement('div');
+        div.className = `log-entry log-${level}`;
+        div.innerHTML = `<span class="log-time">[${new Date().toLocaleTimeString('en-GB')}]</span> ${msg}`;
+        const container = $('log-container');
+        container.prepend(div);
+        if (container.children.length > 50) container.lastChild.remove();
+    }
+
+    const alertCooldowns = {};
+    function addAlert(msg, level='info') {
+        const now = Date.now();
+        // 15 second cooldown per alert type to prevent spam
+        if (alertCooldowns[msg] && now - alertCooldowns[msg] < 15000) return;
+        
+        // Prevent duplicate visible alerts
+        if ([...$('alert-feed').children].some(el => el.innerText.includes(msg))) return;
+        
+        alertCooldowns[msg] = now;
+        const div = document.createElement('div');
+        div.className = `alert-item alert-${level}`;
+        div.innerHTML = `<b>${new Date().toLocaleTimeString('en-GB')}</b> ${msg}`;
+        $('alert-feed').prepend(div);
+        setTimeout(() => div.remove(), 5000);
+    }
+
+    function sendCommand(type, payload) {
+        const now = Date.now();
+        // 20Hz Throttling for motor commands
+        if (type === 'motor' && now - state.lastCommandTime < 50) return;
+        state.lastCommandTime = now;
+        socket.emit(type + '_cmd', payload);
+    }
+
+    initGauges();
+    renderJoysticks();
+    log("System Booting...", "info");
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+flask
+flask-socketio
+eventlet
+pyserial
+opencv-python-headless
+numpy
+# For Raspberry Pi (Bookworm): sudo apt install python3-tflite-runtime
+# Or: pip install tflite-runtime --index-url https://google-coral.github.io/py-repo/
+# tflite-runtime
