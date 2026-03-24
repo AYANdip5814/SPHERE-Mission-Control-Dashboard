@@ -169,11 +169,28 @@ class RobotSim:
             if self.calibrated:
                 self.depth = max(0, (p - self.pressure_baseline) * 0.1)
             
-            self.battery = self.real_sensors.get('battery_pct', self.battery)
+            # Battery: estimate from thruster PWM feedback 
+            # (Arduino sends t1_pwm, t2_pwm, t3_pwm) 
+            t1 = self.real_sensors.get('t1_pwm', 0) 
+            t2 = self.real_sensors.get('t2_pwm', 0) 
+            t3 = self.real_sensors.get('t3_pwm', 0) 
+            avg_pwm = (t1 + t2 + t3) / 3.0 
+            # Drain rate: base 0.003%/s + load-based 0.007%/s at full 
+            drain_rate = 0.003 + (avg_pwm / 255.0) * 0.007 
+            self.battery = max(0, self.battery - drain_rate * dt) 
+            
+            # Noise class: derive from turbidity and TDS as proxy 
+            # (real audio classifier would replace this) 
+            if self.tds > 600 or self.turbidity > 70: 
+                self.noise_class = "INDUSTRIAL" 
+            elif self.turbidity > 40: 
+                self.noise_class = "BIOLOGICAL" 
+            else: 
+                self.noise_class = "CLEAN" 
+
             self.temp = self.real_sensors.get('temp', self.temp)
             self.tds = self.real_sensors.get('tds', self.tds)
             self.turbidity = self.real_sensors.get('turbidity', self.turbidity)
-            self.noise_class = self.real_sensors.get('noise_class', self.noise_class)
             self.compass = self.real_sensors.get('compass', self.compass)
             
             # IMU Safety
@@ -273,6 +290,11 @@ class RobotSim:
             t2 = rev_pwr + h_val
             t3 = rev_pwr + h_val
         
+        # Arduino firmware must parse: {"T1":int,"T2":int,"T3":int} 
+        # In Arduino loop(): if Serial.available(), 
+        # read JSON line, parse T1/T2/T3, 
+        # call analogWrite(9,T1), analogWrite(10,T2), 
+        # analogWrite(11,T3) 
         hw.send_to_arduino({
             "T1": int(max(0, min(255, t1))),
             "T2": int(max(0, min(255, t2))),
@@ -293,6 +315,9 @@ class RobotSim:
             "depth": round(self.depth, 1),
             "noise_class": self.noise_class,
             "compass": self.compass,
+            "t1_pwm": self.real_sensors.get('t1_pwm', 0), 
+            "t2_pwm": self.real_sensors.get('t2_pwm', 0), 
+            "t3_pwm": self.real_sensors.get('t3_pwm', 0),
             "sonar": {
                 "angle": int(self.sonar_angle),
                 "us1": round(self.sonar_reading, 1),

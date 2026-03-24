@@ -164,7 +164,7 @@
             <div>TIMER: <span id="mission-timer" class="font-mono" style="color: #fff;">00:00:00</span></div>
             <div style="display: flex; align-items: center; gap: 10px;">
                 <div>DEPTH: <span id="depth-val" style="color: var(--cyan); font-weight: bold;">0.0</span> <span style="font-size: 12px; color: var(--cyan-dim);">m</span></div>
-                <button onclick="socket.emit('calibrate_depth', true)" style="background: rgba(0,229,255,0.1); border: 1px solid var(--cyan-dim); color: var(--cyan); font-size: 10px; cursor: pointer; padding: 2px 5px; border-radius: 2px;">CALIB</button>
+                <button onclick="if(state.connected) socket.emit('calibrate_depth', true)" style="background: rgba(0,229,255,0.1); border: 1px solid var(--cyan-dim); color: var(--cyan); font-size: 10px; cursor: pointer; padding: 2px 5px; border-radius: 2px;">CALIB</button>
             </div>
         </div>
 
@@ -261,7 +261,7 @@
             </div>
             <div style="font-size: 10px; color: var(--cyan-dim); margin-top: 4px; display: flex; justify-content: space-between;">
                 <span>MAIN BUS VOLTAGE</span>
-                <span>16.4V</span>
+                <span>7.4V</span>
             </div>
         </div>
     </section>
@@ -349,6 +349,10 @@
         }
     });
 
+    socket.on('log', (data) => { 
+        log(data.msg, data.level || 'info'); 
+    });
+
     // Start Simulation Grace Period (3 seconds)
     state.simGraceTimeout = setTimeout(() => {
         if (!state.connected) {
@@ -403,6 +407,19 @@
     }, 150);
 
     function updateDashboard(data) {
+        // Show real confirmed PWM from Arduino if available 
+        if (data.t1_pwm !== undefined) { 
+            const p1 = (data.t1_pwm / 255) * 100; 
+            const p2 = (data.t2_pwm / 255) * 100; 
+            const p3 = (data.t3_pwm / 255) * 100; 
+            $('fill-t1').style.height = p1 + '%'; 
+            $('val-t1').innerText = Math.round(p1) + '%'; 
+            $('fill-t2').style.height = p2 + '%'; 
+            $('val-t2').innerText = Math.round(p2) + '%'; 
+            $('fill-t3').style.height = p3 + '%'; 
+            $('val-t3').innerText = Math.round(p3) + '%'; 
+        } 
+
         // Depth (Direct from backend)
         const depth = (data.depth || 0).toFixed(1);
         $('depth-val').innerText = depth;
@@ -607,21 +624,44 @@
         // Rings
         sonarCtx.strokeStyle = 'rgba(0, 229, 255, 0.1)'; sonarCtx.lineWidth = 1;
         [40, 80, 120].forEach(r => { sonarCtx.beginPath(); sonarCtx.arc(cx, cy, r, 0, Math.PI*2); sonarCtx.stroke(); });
+        
+        // Distance labels on rings 
+        sonarCtx.fillStyle = 'rgba(0, 229, 255, 0.4)'; 
+        sonarCtx.font = '9px Rajdhani, sans-serif'; 
+        sonarCtx.textAlign = 'center'; 
+        sonarCtx.fillText('100cm', cx, cy - 42); 
+        sonarCtx.fillText('200cm', cx, cy - 82); 
+        sonarCtx.fillText('300cm', cx, cy - 122); 
+
         // Scan Line
         const rad1 = (sonar.angle - 90) * Math.PI / 180;
         sonarCtx.strokeStyle = 'rgba(0, 229, 255, 0.8)'; sonarCtx.beginPath(); sonarCtx.moveTo(cx, cy); sonarCtx.lineTo(cx + Math.cos(rad1) * 130, cy + Math.sin(rad1) * 130); sonarCtx.stroke();
         
         // Add blips for us1 and us2
-        if (sonar.us1 < 200) blips.push({ a: rad1, d: (sonar.us1/200)*130, t: Date.now() });
-        const rad2 = (sonar.angle + 30 - 90) * Math.PI / 180;
-        if (sonar.us2 < 200) blips.push({ a: rad2, d: (sonar.us2/200)*130, t: Date.now() });
+        const MAX_SONAR_CM = 350; // HC-SR04 practical max 
+        if (sonar.us1 < MAX_SONAR_CM) blips.push({ 
+            a: rad1, 
+            d: (sonar.us1 / MAX_SONAR_CM) * 130, 
+            t: Date.now(), 
+            close: sonar.us1 < 30 
+        }); 
+        const rad2 = (sonar.angle + 30 - 90) * Math.PI / 180; 
+        if (sonar.us2 < MAX_SONAR_CM) blips.push({ 
+            a: rad2, 
+            d: (sonar.us2 / MAX_SONAR_CM) * 130, 
+            t: Date.now(), 
+            close: sonar.us2 < 30 
+        }); 
 
         const now = Date.now();
         for (let i = blips.length - 1; i >= 0; i--) {
             const b = blips[i];
             // FIX 8: Age-based expiry (5 seconds) for full sweep persistence
             if (now - b.t > 5000) { blips.splice(i, 1); continue; }
-            sonarCtx.fillStyle = `rgba(0, 229, 255, ${1 - (now - b.t) / 5000})`;
+            const alpha = 1 - (now - b.t) / 5000; 
+            sonarCtx.fillStyle = b.close 
+                ? `rgba(255, 23, 68, ${alpha})` 
+                : `rgba(0, 229, 255, ${alpha})`; 
             sonarCtx.beginPath(); sonarCtx.arc(cx + Math.cos(b.a) * b.d, cy + Math.sin(b.a) * b.d, 3, 0, Math.PI*2); sonarCtx.fill();
         }
     }
@@ -640,14 +680,18 @@
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-w, 0); ctx.lineTo(w, 0); ctx.stroke();
         
         // Crosshair drawn WITHIN clipping region
-        ctx.strokeStyle = 'var(--warn)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-20, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(20, 0); ctx.stroke();
+        ctx.strokeStyle = '#ffab00'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-20, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(20, 0); ctx.stroke();
         
         ctx.restore();
     }
 
     const gpsCtx = $('gps-canvas').getContext('2d'), gpsPath = [];
     function renderGPS(gps) {
-        if (!gps.fix) { $('gps-status-badge').innerText = "NO FIX"; return; }
+        if (!gps.fix) { 
+            $('gps-status-badge').innerText = "NO FIX"; 
+            $('gps-status-badge').style.color = "var(--warn)"; 
+            return; 
+        } 
         $('gps-status-badge').innerText = "FIX ACQUIRED";
         $('gps-status-badge').style.color = "var(--ok)";
         gpsPath.push({ x: gps.lon, y: gps.lat });
@@ -685,11 +729,17 @@
         }
 
         detections.forEach(d => {
-            aiCtx.strokeStyle = d.class === 'PLASTIC' ? 'var(--ai-plastic)' : d.class === 'BIO' ? 'var(--ai-fish)' : 'var(--ai-metal)';
+            const colorMap = { 
+                PLASTIC: '#ff6d00', 
+                BIO:     '#00b0ff', 
+                METAL:   '#aa00ff' 
+            }; 
+            const boxColor = colorMap[d.class] || '#00e5ff'; 
+            aiCtx.strokeStyle = boxColor; 
             aiCtx.lineWidth = 3;
             const [x1, y1, x2, y2] = d.box;
             aiCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-            aiCtx.fillStyle = aiCtx.strokeStyle;
+            aiCtx.fillStyle = boxColor; 
             // FIX 15: Add fallback for Orbitron
             aiCtx.font = "bold 12px Orbitron, monospace";
             aiCtx.fillText(`${d.class} ${Math.round(d.conf*100)}%`, x1, y1 - 5);
